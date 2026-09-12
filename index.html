@@ -1,0 +1,356 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Naves Galácticas</title>
+<style>
+:root{--ink:#dbeaff;--cyan:#65e7ff;--violet:#ae86ff;--panel:#111a39;--line:#324a83}*{box-sizing:border-box}body{margin:0;min-height:100dvh;background:radial-gradient(circle at 50% 0,#263a78 0,#0a1029 48%,#050817 100%);color:var(--ink);font-family:system-ui,-apple-system,Segoe UI,sans-serif;display:grid;place-items:center;padding:14px}#app{width:min(760px,100%)}h1{text-align:center;font-size:clamp(1.45rem,5vw,2.2rem);margin:4px 0 12px;letter-spacing:.08em;text-shadow:0 0 18px #65e7ff88}.card{background:#101934e6;border:1px solid #324a83;border-radius:20px;padding:18px;box-shadow:0 14px 45px #0008}.hidden{display:none!important}.levels{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}.level{min-height:105px;border:1px solid #415c9d;border-radius:15px;background:linear-gradient(145deg,#1b2a57,#101a38);color:#fff;padding:12px;text-align:left;font:inherit;cursor:pointer}.level:not(:disabled):hover{transform:translateY(-2px);border-color:var(--cyan)}.level:disabled{opacity:.42;cursor:not-allowed;filter:grayscale(1)}.level b{display:block;font-size:1.1rem}.stars{color:#ffd761;margin-top:8px;letter-spacing:2px}.pages{display:flex;justify-content:center;gap:12px;margin-top:16px}.pages button,.action{border:0;border-radius:12px;padding:10px 16px;background:#31569d;color:white;font:700 1rem inherit;cursor:pointer}.pages button:disabled{opacity:.4}.hud{display:flex;justify-content:space-between;gap:10px;margin:0 0 9px;font-weight:700;color:#cfe3ff}.hud span{background:#111c3b;border:1px solid #314d88;border-radius:9px;padding:6px 9px}canvas{display:block;width:100%;aspect-ratio:16/10;background:#050a20;border:1px solid #405b99;border-radius:16px;touch-action:none;image-rendering:auto}.controls{display:grid;grid-template-columns:1fr 1fr 1fr;gap:9px;margin-top:12px}.controls button{min-height:58px;border:1px solid #5376c5;border-radius:14px;background:linear-gradient(#294a8c,#172c5d);color:white;font-weight:800;font-size:1rem;touch-action:manipulation}.controls button.fire{background:linear-gradient(#8a43b7,#4d237a);border-color:#cb8eff}.hint{text-align:center;color:#9fb5e9;font-size:.86rem;margin:10px 0 0}.overlay{position:absolute;inset:0;display:grid;place-items:center;background:#050817bb;border-radius:16px;text-align:center;padding:18px}.stage{position:relative}.overlay div{background:#15244b;border:1px solid #5d82d2;border-radius:16px;padding:22px;max-width:330px}.overlay h2{margin:0 0 8px}.overlay p{color:#c5d6ff}.overlay button{margin:4px}@media(min-width:620px){.levels{grid-template-columns:repeat(4,1fr)}.controls{max-width:520px;margin:12px auto 0}.level{min-height:120px}}
+</style>
+</head>
+<body>
+<main id="app">
+<h1>✦ NAVES GALÁCTICAS ✦</h1>
+
+<section id="map" class="card">
+<p style="margin-top:0;color:#a9c2ff">Elige una misión. Destruye todas las naves enemigas para abrir la siguiente.</p>
+<div id="levels" class="levels"></div>
+<div class="pages">
+<button id="prev">← Anterior</button>
+<strong id="pageLabel"></strong>
+<button id="next">Siguiente →</button>
+</div>
+</section>
+
+<section id="game" class="card hidden">
+<div class="hud">
+<span id="mission">Misión 1</span>
+<span id="score">✦ 0 / 4</span>
+<span id="lives">♥♥♥</span>
+<button id="back" class="action">Mapa</button>
+</div>
+
+<div class="stage">
+<canvas id="screen" width="800" height="500"></canvas>
+<div id="overlay" class="overlay hidden">
+<div>
+<h2 id="overTitle">Misión completa</h2>
+<p id="overText"></p>
+<button id="again" class="action">Reintentar</button>
+<button id="mapBtn" class="action">Mapa</button>
+</div>
+</div>
+</div>
+
+<div class="controls">
+<button data-key="left">◀ IZQUIERDA</button>
+<button data-key="fire" class="fire">✦ DISPARAR</button>
+<button data-key="right">DERECHA ▶</button>
+</div>
+<p class="hint">PC: ← → o A/D para mover · Espacio/X para disparar</p>
+</section>
+</main>
+
+<script>
+(()=>{
+const $=s=>document.querySelector(s),cv=$('#screen'),c=cv.getContext('2d'),W=800,H=500;
+let page=0,level=1,run=false,keys={},player,enemies,shots,enemyShots,ticks,score,lives,raf;
+
+function targetFor(n){return Math.min(24,2+Math.ceil(n*1.05))}
+const save=JSON.parse(localStorage.getItem('naves-galacticas')||'{"open":2,"scores":{}}');
+
+const names=[
+'Cinturón Azul','Nebulosa de Cristal','Lunas Gemelas','Tormenta Solar',
+'Sector Cometa','Anillo de Saturno','Nube Violeta','Estación Perdida',
+'Cañón Cósmico','Frontera Nova','Campo de Asteroides','Puerta Estelar',
+'Órbita Roja','Marea Lunar','Núcleo Helio','Galaxia Espejo',
+'Colonia Aurora','Vórtice Índigo','Bastión Zenith','Reino de Estrellas'
+];
+
+function persist(){
+  localStorage.setItem('naves-galacticas',JSON.stringify(save))
+}
+
+function renderMap(){
+  let root=$('#levels');
+  root.innerHTML='';
+
+  for(let n=page*4+1;n<=Math.min(page*4+4,20);n++){
+    let open=n<=save.open,b=document.createElement('button');
+    b.className='level';
+    b.disabled=!open;
+    b.innerHTML=`<b>${n}. ${names[n-1]}</b>
+      <small>${open?'Misión disponible':'🔒 Necesitas superar la anterior'}</small>
+      <div class="stars">${open ? `Objetivo: ${targetFor(n)} naves` : 'Misión bloqueada'}</div>`;
+    b.onclick=()=>start(n);
+    root.append(b);
+  }
+
+  $('#pageLabel').textContent=`Página ${page+1} / 5`;
+  $('#prev').disabled=page===0;
+  $('#next').disabled=page===4;
+}
+
+$('#prev').onclick=()=>{page--;renderMap()};
+$('#next').onclick=()=>{page++;renderMap()};
+
+function start(n){
+  level=n;
+  $('#map').classList.add('hidden');
+  $('#game').classList.remove('hidden');
+  $('#overlay').classList.add('hidden');
+
+  player={x:W/2,y:H-58,w:36,h:35,cd:0};
+  enemies=[];
+  shots=[];
+  enemyShots=[];
+  ticks=0;
+  score=0;
+  lives=3;
+  run=true;
+
+  addEnemy();
+  $('#mission').textContent=`Misión ${n}: ${names[n-1]}`;
+  updateHud();
+  cancelAnimationFrame(raf);
+  loop();
+}
+
+function updateHud(){
+  $('#score').textContent=`✦ ${score} / ${targetFor(level)}`;
+  $('#lives').textContent='♥'.repeat(lives)+'♡'.repeat(3-lives);
+}
+
+function shoot(){
+  if(run&&player.cd<=0){
+    shots.push({x:player.x,y:player.y-23,vy:-9});
+    player.cd=13;
+  }
+}
+
+function input(){
+  let dx=(keys.left?-1:0)+(keys.right?1:0);
+  player.x=Math.max(22,Math.min(W-22,player.x+dx*(5.2+level*.08)));
+  if(keys.fire)shoot();
+  if(player.cd>0)player.cd--;
+}
+
+function addEnemy(){
+  let hard=level<4?1:level<9?2:level<15?3:4;
+  enemies.push({
+    x:35+Math.random()*(W-70),
+    y:-30,
+    v:1.05+Math.random()*.55+level*.018,
+    hp:hard,
+    phase:Math.random()*6.2
+  });
+}
+
+function hit(a,b,r=18){
+  return Math.hypot(a.x-b.x,a.y-b.y)<r;
+}
+
+function update(){
+  ticks++;
+  input();
+
+  let target=targetFor(level);
+
+  if(score+enemies.length<target&&ticks%Math.max(38,104-level*3)===0)addEnemy();
+
+  shots.forEach(s=>s.y+=s.vy);
+  shots=shots.filter(s=>s.y>-20);
+
+  enemies.forEach(e=>{
+    e.y+=e.v;
+    e.x+=Math.sin(ticks/30+e.phase)*1.1;
+    if(ticks%Math.max(75,150-level*3)===0){
+      enemyShots.push({x:e.x,y:e.y,vy:2.7+level*.035});
+    }
+  });
+
+  enemyShots.forEach(s=>s.y+=s.vy);
+  enemyShots=enemyShots.filter(s=>s.y<H+20);
+
+  for(let i=enemies.length-1;i>=0;i--){
+    let e=enemies[i];
+
+    for(let j=shots.length-1;j>=0;j--){
+      if(hit(e,shots[j],24)){
+        shots.splice(j,1);
+
+        if(--e.hp<=0){
+          enemies.splice(i,1);
+          score++;
+          updateHud();
+
+          if(score>=target){
+            complete();
+            return;
+          }
+          break;
+        }
+      }
+    }
+
+    if(e&&e.y>H+35)enemies.splice(i,1);
+  }
+
+  for(let i=enemyShots.length-1;i>=0;i--){
+    if(hit(player,enemyShots[i],24)){
+      enemyShots.splice(i,1);
+      damage();
+    }
+  }
+
+  for(let i=enemies.length-1;i>=0;i--){
+    if(hit(player,enemies[i],34)){
+      enemies.splice(i,1);
+      damage();
+    }
+  }
+}
+
+function damage(){
+  if(!run)return;
+  lives--;
+  updateHud();
+  if(lives<=0)end(false);
+}
+
+function complete(){
+  if(!run)return;
+  save.scores[level]=targetFor(level);
+  save.open=Math.max(save.open,Math.min(20,level+1));
+  persist();
+  end(true);
+}
+
+function end(win){
+  run=false;
+  $('#overTitle').textContent=win?'✦ MISIÓN COMPLETA':'☄ MISIÓN FALLIDA';
+  $('#overText').textContent=win?
+    `Destruiste ${targetFor(level)} naves enemigas. La próxima misión está desbloqueada.`:
+    'Tu nave recibió demasiado daño. ¡Inténtalo otra vez!';
+  $('#overlay').classList.remove('hidden');
+  renderMap();
+}
+
+function draw(){
+  c.clearRect(0,0,W,H);
+  c.fillStyle='#050a20';
+  c.fillRect(0,0,W,H);
+
+  for(let i=0;i<90;i++){
+    let x=(i*97%W),y=(i*53%H);
+    c.globalAlpha=.18+(i%4)*.15;
+    c.fillStyle='#b9d8ff';
+    c.fillRect(x,y,2,2);
+  }
+
+  c.globalAlpha=1;
+
+  shots.forEach(s=>{
+    c.strokeStyle='#70edff';
+    c.lineWidth=5;
+    c.beginPath();
+    c.moveTo(s.x,s.y+8);
+    c.lineTo(s.x,s.y-10);
+    c.stroke();
+  });
+
+  enemyShots.forEach(s=>{
+    c.strokeStyle='#ff718f';
+    c.lineWidth=5;
+    c.beginPath();
+    c.moveTo(s.x,s.y-6);
+    c.lineTo(s.x,s.y+8);
+    c.stroke();
+  });
+
+  enemies.forEach(e=>{
+    c.save();
+    c.translate(e.x,e.y);
+    c.fillStyle='#f05b83';
+    c.beginPath();
+    c.moveTo(0,22);
+    c.lineTo(-24,-18);
+    c.lineTo(0,-9);
+    c.lineTo(24,-18);
+    c.closePath();
+    c.fill();
+    c.fillStyle='#ffcad8';
+    c.fillRect(-7,-7,14,9);
+    c.restore();
+  });
+
+  c.save();
+  c.translate(player.x,player.y);
+  c.fillStyle='#6ee7ff';
+  c.beginPath();
+  c.moveTo(0,-25);
+  c.lineTo(-21,21);
+  c.lineTo(0,13);
+  c.lineTo(21,21);
+  c.closePath();
+  c.fill();
+  c.fillStyle='#d9fbff';
+  c.fillRect(-6,-6,12,13);
+  c.restore();
+}
+
+function loop(){
+  update();
+  draw();
+  if(run)raf=requestAnimationFrame(loop);
+}
+
+$('#back').onclick=()=>{
+  run=false;
+  cancelAnimationFrame(raf);
+  $('#game').classList.add('hidden');
+  $('#map').classList.remove('hidden');
+  renderMap();
+};
+
+$('#mapBtn').onclick=$('#back').onclick;
+$('#again').onclick=()=>start(level);
+
+addEventListener('keydown',e=>{
+  if(['ArrowLeft','a','A'].includes(e.key))keys.left=true;
+  if(['ArrowRight','d','D'].includes(e.key))keys.right=true;
+
+  if([' ','x','X','f','F'].includes(e.key)){
+    keys.fire=true;
+    e.preventDefault();
+  }
+});
+
+addEventListener('keyup',e=>{
+  if(['ArrowLeft','a','A'].includes(e.key))keys.left=false;
+  if(['ArrowRight','d','D'].includes(e.key))keys.right=false;
+  if([' ','x','X','f','F'].includes(e.key))keys.fire=false;
+});
+
+document.querySelectorAll('[data-key]').forEach(b=>{
+  let k=b.dataset.key;
+
+  for(let ev of ['pointerdown','pointerenter']){
+    b.addEventListener(ev,e=>{
+      if(e.buttons||ev==='pointerdown'){
+        keys[k]=true;
+        e.preventDefault();
+      }
+    });
+  }
+
+  for(let ev of ['pointerup','pointerleave','pointercancel']){
+    b.addEventListener(ev,()=>keys[k]=false);
+  }
+});
+
+renderMap();
+})();
+</script>
+</body>
+</html>
